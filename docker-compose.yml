@@ -1,0 +1,51 @@
+# Bullish Breakout Scanner
+#
+#   docker compose up -d --build     start both services in the background
+#   docker compose logs -f           follow output
+#   docker compose down              stop
+#
+# Then open http://localhost:5174
+#
+# "restart: unless-stopped" is the point of running it this way: the stack
+# survives reboots and stays up on its own, so the URL does not go dead.
+
+services:
+  backend:
+    build: ./backend
+    image: bullish-breakout-api
+    container_name: bullish-breakout-api
+    restart: unless-stopped
+    ports:
+      # Published on the host because the browser calls the API directly
+      # (VITE_API_BASE), not through the frontend container.
+      - "8000:8000"
+    volumes:
+      # Keep the Yahoo price/info cache across restarts -- a cold scan of 235
+      # symbols is slow, and the TTLs (4h prices, 24h info) do the rest.
+      - scanner-cache:/app/.cache
+      # Scans written by export_scan.py land on the host.
+      - ./backend/exports:/app/exports
+    environment:
+      # Point at a different ticker list without rebuilding, e.g. by mounting
+      # one in and setting this to its path inside the container.
+      # UNIVERSE_CSV_PATH: /app/app/data/universe.csv
+      TZ: ${TZ:-UTC}
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Must be an address the host browser can reach. Change this if you
+        # publish the API somewhere else -- and rebuild, since Vite bakes it in.
+        VITE_API_BASE: ${VITE_API_BASE:-http://127.0.0.1:8000}
+    image: bullish-breakout-web
+    container_name: bullish-breakout-web
+    restart: unless-stopped
+    ports:
+      - "5174:5174"
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  scanner-cache:
